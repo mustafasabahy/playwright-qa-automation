@@ -8,7 +8,7 @@
 #             merge if the funnel is broken.
 #
 #    audit  - runs nightly against production. The full 17-case suite plus the
-#             Markdown/PDF report. Catches the things that break without anyone
+#             generated Markdown report. Catches what breaks without anyone
 #             shipping code, which is exactly how topcars.php started returning
 #             500s unnoticed.
 # =============================================================================
@@ -18,7 +18,10 @@ on:
   pull_request:
     branches: [main, develop]
   schedule:
-    # 04:15 Europe/Berlin, before the sales team starts.
+    # GitHub cron is always UTC and has no timezone support, so this drifts
+    # with DST: 04:15 Berlin in winter (CET), 05:15 in summer (CEST).
+    # Both land before the sales team starts, so the drift is acceptable.
+    # Minute 15 rather than 00 on purpose: scheduled runs queue heavily on the hour.
     - cron: '15 3 * * *'
   workflow_dispatch:
     inputs:
