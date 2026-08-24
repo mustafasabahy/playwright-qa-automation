@@ -1,0 +1,21 @@
+{
+  "name": "autohaus-royal-audit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end Playwright + TypeScript QA automation suite for autohaus-royal.de",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/funnel_smoke.spec.ts",
+    "test:headed": "playwright test --headed",
+    "test:debug": "PWDEBUG=1 playwright test",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit",
+    "diagram": "node scripts/render-mermaid.mjs docs/architecture.mmd"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0",
+    "mermaid": "^11.17.0",
+    "typescript": "^5.7.0"
+  }
+}

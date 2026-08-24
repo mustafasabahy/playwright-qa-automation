@@ -1,0 +1,114 @@
+# =============================================================================
+#  Revenue-funnel quality gate
+#
+#  Two jobs, two different jobs to do:
+#
+#    smoke  - runs on every pull request. Three tests, under two minutes.
+#             Fast enough that nobody is tempted to skip it, and it blocks the
+#             merge if the funnel is broken.
+#
+#    audit  - runs nightly against production. The full 17-case suite plus the
+#             Markdown/PDF report. Catches the things that break without anyone
+#             shipping code, which is exactly how topcars.php started returning
+#             500s unnoticed.
+# =============================================================================
+name: QA Gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 04:15 Europe/Berlin, before the sales team starts.
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Base URL to test (staging or production)'
+        required: false
+        default: 'https://www.autohaus-royal.de'
+
+concurrency:
+  group: qa-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: Funnel smoke gate
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Type-check the suite
+        run: npm run typecheck
+
+      - name: Run funnel smoke tests
+        run: npm run test:smoke
+        env:
+          BASE_URL: ${{ github.event.inputs.target_url || 'https://www.autohaus-royal.de' }}
+
+      # Evidence is only useful if it survives the failure that produced it.
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-evidence-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Nightly production audit
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # `|| true`: a failing audit is the expected state while defects are open.
+      # The report is the deliverable here, not the exit code.
+      - name: Run full audit suite
+        run: npx playwright test || true
+        env:
+          BASE_URL: https://www.autohaus-royal.de
+
+      - name: Publish report
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-audit-report-${{ github.run_id }}
+          path: |
+            reports/AUDIT_REPORT.md
+            playwright-report/
+          retention-days: 90
+
+      # Severity routing: only a Critical wakes anybody up.
+      - name: Alert on Critical findings
+        if: always()
+        run: |
+          if grep -q '🔴 Critical' reports/AUDIT_REPORT.md 2>/dev/null; then
+            echo "::error::Critical defect detected in nightly audit"
+            # Wire to Slack/Teams here, e.g.:
+            # curl -X POST -H 'Content-type: application/json' \
+            #   --data "{\"text\":\"Critical QA defect on autohaus-royal.de\"}" \
+            #   "${{ secrets.SLACK_WEBHOOK_URL }}"
+          fi
